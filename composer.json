@@ -1,0 +1,19 @@
+{
+    "name": "atingo/joomlarc",
+    "description": "Gestión remota de instalaciones Joomla",
+    "require": {
+        "symfony/console": "2.5.0",
+        "guzzlehttp/guzzle": "~4",
+        "guzzlehttp/progress-subscriber": "1.*",
+        "alchemy/zippy": "0.2.0"
+    },
+    "authors": [
+        {
+            "name": "Tomas Vilarino",
+            "email": "vifito@vifito.eu"
+        }
+    ],
+    "autoload": {
+        "classmap": ["src"]
+    }
+}
