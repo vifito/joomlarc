@@ -17,10 +17,13 @@ use Alchemy\Zippy\Exception\FormatNotSupportedException;
 
 class InstallCommand extends Command
 {
-    
     private $input;
-
     private $output; 
+
+    private $uriDownload = 'https://github.com/joomla/joomla-cms/archive/staging.zip';
+    private $config;
+
+    private $db = null;
 
     protected function configure()
     {
@@ -58,7 +61,7 @@ class InstallCommand extends Command
                 'DB name?'
             )
             ->addOption(
-                'prefix',
+                'dbprefix',
                 null,
                 InputOption::VALUE_OPTIONAL,
                 'DB prefix?'
@@ -72,20 +75,22 @@ class InstallCommand extends Command
         $this->output = $output;
 
         // Download Joomla
-        $joomlaFile = $this->download();
+        //$joomlaFile = $this->download();
         //$joomlaFile = '/tmp/joomla-downloadMCxkFu.zip';
 
         // Get Installation Directory
-        $installationDir = $this->getInstallationDir($input);
+        //$installationDir = $this->getInstallationDir($input);
+        $installationDir = '/home/vifito/dev/joomla3';
 
         // Uncompress 
-        $this->uncompress($joomlaFile, $installationDir);
+        //$this->uncompress($joomlaFile, $installationDir);
         
         // Setup configuration.php
         $this->setupConfiguration($installationDir);
 
         // TODO:
         // Bulk SQL
+        $this->loadDatabase($installationDir);
 
         // Move installation directory
 
@@ -96,7 +101,9 @@ class InstallCommand extends Command
 
     private function download()
     {
-        $uri = 'http://joomlacode.org/gf/download/frsrelease/19524/159413/Joomla_3.3.1-Stable-Full_Package.zip';
+        //$uri = 'http://joomlacode.org/gf/download/frsrelease/19524/159413/Joomla_3.3.1-Stable-Full_Package.zip';
+        $uri = $this->uri;
+        $this->output('Downloading ... ' . $filename);
 
         $progressBar = new ProgressBar($this->output, 100);
         $progressBar->start();
@@ -226,7 +233,7 @@ class InstallCommand extends Command
 
             $question = new Question('DB Password: ', null);
             $question->setValidator(function ($answer) {
-                $regexPassword = '/^(.{5,})$/';
+                $regexPassword = '/^(.{1,})$/';
 
                 if (!preg_match($regexPassword, $answer)) {
                     throw new \RuntimeException(
@@ -310,6 +317,7 @@ class InstallCommand extends Command
 
         $content = file_get_contents($confTarget);
 
+        // FIXME: load configuration previously, other method
         $hostname = $this->getDbHost($this->input);
         $content = preg_replace('/public \$host = \'.*?\';/', 
             'public \$host = \'' . $hostname . '\';', $content);
@@ -326,7 +334,59 @@ class InstallCommand extends Command
         $content = preg_replace('/public \$db = \'.*?\';/',
             'public \$db = \'' . $db . '\';', $content);
 
+        $dbprefix = $this->getDbPrefix($this->input);
+        $content = preg_replace('/public \$dbprefix = \'.*?\';/',
+            'public \$dbprefix = \'' . $dbprefix . '\';', $content);            
+
+        // Save configuration 
+        $this->config = new \stdClass;
+        $this->config->host     = $hostname;
+        $this->config->user     = $user;
+        $this->config->password = $password;
+        $this->config->db       = $db;
+        $this->config->dbprefix = $dbprefix;        
+
         file_put_contents($confTarget, $content);
     }
 
+    private function loadDatabase($installationDir)
+    {
+        // TODO: preguntar por todos los motores de búsqueda soportados
+        $sqlFileTemplate = realpath($installationDir . '/installation/sql/mysql/joomla.sql');
+        $sql = file_get_contents($sqlFileTemplate);
+
+        $sql = preg_replace('/#__/', $this->config->dbprefix, $sql);
+        $sql = preg_replace('/\n\-\-.*?\n/', "\n", $sql);        
+
+        $sentences = explode(';', $sql);
+
+        foreach($sentences as $sentence) {
+            $this->executeSql($sentence);
+        }
+
+        $this->db = null;
+    }
+
+    private function getDb()
+    {
+        if($this->db === null) {
+            $dsn = 'mysql:host=' . $this->config->host . ';dbname=' . $this->config->db;
+            $username = $this->config->user;
+            $passwd   = $this->config->password;
+            $options = array(
+                \PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8',
+            ); 
+
+            $this->db = new \PDO($dsn, $username, $passwd, $options);
+        }
+        
+        return $this->db;        
+    }
+
+    private function executeSql($sql)
+    {
+        $db = $this->getDb();
+        $count = $db->exec($sql);
+    }
+    
 }
